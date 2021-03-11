@@ -12,8 +12,8 @@ int main(int argc, char* argv[])
     //--------------------Иициализация--------------------//
     int sizeX = 100;
 
-    int procNum, procRank, recv;
-    int m=5;//кол-во итераций
+    int procNum, procRank;
+    int m = 5;//кол-во итераций
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &procNum);
@@ -24,26 +24,37 @@ int main(int argc, char* argv[])
 
     auto start = std::chrono::steady_clock::now();
 
-    //--------------------Запуск цикла--------------------//
-    if (procRank == 0) {
-        cout << "Num of processors: " << procNum << endl;
-    }
+    //--------------------Инициализация бу--------------------//
+    const int numMsg = 2;
+    int sendBuff[procNum][numMsg];
+    int* recv = new int[numMsg];
+
     //--------------------Главный цикл--------------------//
     for(int j = 0; j < m; ++j){
         for(int i = 0; i < procNum; ++i) {
-            int globalSum = 0;
-            int localSum = 0;
+            int mes1 = i+1;
+            int mes2 = rand() % 100;
+            for(int k = 0; k < procNum; ++k){
+                sendBuff[k][0] = mes1;
+                sendBuff[k][1] = mes2;
+            }
 
-            localSum = rand()%100;
+            if(procRank == i){
+                cout << "processor " << procRank << " send message " << mes2 << endl;
+            }
 
-            //cout << "Local sum of process " << procRank << " is " << localSum << endl;
-            MPI_Reduce(&localSum, &globalSum, 1, MPI_INT, MPI_SUM, i, MPI_COMM_WORLD);
+            MPI_Scatter(sendBuff, numMsg, MPI_INT, recv, numMsg, MPI_INT, i, MPI_COMM_WORLD);
 
-            if(globalSum != 0){
-                cout << "Process " << procRank << " recieved " << globalSum << endl;
+            if(recv[0] == procRank) {
+                cout << "processor " << procRank << " recv message " << recv[1] << endl;
+            }
+            if(recv[0] == procNum && procRank == 0) {
+                cout << "processor " << procRank << " recv message " << recv[1] << endl;
             }
         }
     }
+
+    delete[] recv;
 
     //--------------------Завершение работы MPI--------------------//
     MPI_Finalize();
