@@ -20,11 +20,12 @@ vector<int> numStrToVec(string str) {
     int num = 0;
 
     //перебираем значения строки
-    for(size_t i = 0; i < str.size(); ++i){
+    for(int c = str.size() - 1; c >= 0; --c) {
         /* формируем число в зависимости от разряда
          * при maxNumBase равном 100, число будет двузначным
          */
-        num += (str[i] - '0') * digitMultiplier;
+        cout << str[c];
+        num += (str[c] - '0') * digitMultiplier;
         digitMultiplier *= 10;
         //добавляем число в результат и повторяем для следующего
         if (digitMultiplier == maxNumBase) {
@@ -75,7 +76,7 @@ vector<int> multNumVecsKaratsuba(const vector<int> A, const vector<int> B) {
         return ret;
     }
 
-    vector<int> ret(2 * N);
+    vector<int> ret(N * 2);
     size_t Ndiv2 = N / 2;
 
     //число, полученное из старших разрядов x
