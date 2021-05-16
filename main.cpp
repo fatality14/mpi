@@ -1,297 +1,360 @@
-//--------------------Подключаемые библиотеки--------------------//
-/*mpi*/
 #include <headers/mpi.h>
-/*std*/
 #include <iostream>
+#include <cstring>
 #include <chrono>
+#include <math.h>
 #include <queue>
-#include <deque>
-#include <complex>
-#include <vector>
+#include <fstream>
 
 using namespace std;
 
-//--------------------Структура для перемножения комплексных матриц--------------------//
-struct ComplexMatrix{
-    //двумерный массив комлексных чисел
-    vector<vector<complex<int>>> matrix;
-    //количество элементов в ряду
-    int rowSize;
+//число кратно 10 т.к. числа в десятичной системе, определяет диапозон чисел для перемножения
+const int maxNumBase = 10;
+//условие, определяющее длину числа, начиная с которой происходит обычное умножение
+const int simpleMultNumCond = 1;
 
-    //конструктор создаёт матрицу rowSize * rowSize и заполняет её нулевыми комплексными значениями
-    ComplexMatrix(int rowSize){
-        this->rowSize = rowSize;
+//разбивает строку и делает из неё массив чисел, кратных maxNumBase
+vector<int> numStrToVec(string str) {
+    vector<int> numVec;
+    unsigned int digitMultiplier = 1;
+    int num = 0;
 
-        for (int i = 0; i < rowSize; ++i){
-            vector<complex<int>> v;
-            for (int j = 0; j < rowSize; ++j){
-                v.push_back(complex<int>(0, 0));
-            }
-            matrix.push_back(v);
+    //перебираем значения строки
+    for(size_t i = 0; i < str.size(); ++i){
+        /* формируем число в зависимости от разряда
+         * при maxNumBase равном 100, число будет двузначным
+         */
+        num += (str[i] - '0') * digitMultiplier;
+        digitMultiplier *= 10;
+        //добавляем число в результат и повторяем для следующего
+        if (digitMultiplier == maxNumBase) {
+            numVec.push_back(num);
+            num = 0;
+            digitMultiplier = 1;
         }
     }
 
-    /* конструктор создаёт матрицу rowSize * rowSize и заполняет её из массива сырых чисел
-     * массив сырых чисел содержит пары элементов r, im, r, im ... */
-    ComplexMatrix(int* m, int rowSize){
-        this->rowSize = rowSize;
-        int k = 0, l = 1;
-        for (int i = 0; i < rowSize; ++i){
-            vector<complex<int>> v;
-            for (int j = 0; j < rowSize; ++j){
-                v.push_back(complex<int>(m[k], m[l]));
-                k += 2;
-                l += 2;
-            }
-            matrix.push_back(v);
+    //добавляем последнее число в результат
+    if (num != 0) {
+        numVec.push_back(num);
+    }
+
+    return numVec;
+}
+
+//делает размер массива кратным двум степени заданного числа
+void fetchVec(vector<int>& vec, size_t size) {
+    while (size & (size - 1)) {
+        ++size;
+    }
+    vec.resize(size);
+}
+
+//перемножает два массива чисел и возвращает вектор полученных значений
+vector<int> multNumVecs(const vector<int> a, const vector<int> b) {
+    size_t size = a.size();
+    vector<int> ret(size * 2);
+
+    for (size_t i = 0; i < size; ++i) {
+        for (size_t j = 0; j < size; ++j) {
+            ret[i + j] += a[i] * b[j];
         }
     }
 
-    //умножение двух матриц
-    ComplexMatrix operator* (ComplexMatrix rhs){
-        int rhvRowSize = rhs.rowSize;
-        ComplexMatrix res(rhvRowSize);
+    return ret;
+}
 
-        //самый стандартный алгоритм умножения матриц
-        for (int i = 0; i < rhvRowSize; ++i) {
-            for (int j = 0; j < rhvRowSize; ++j) {
-                res.matrix[i][j] = 0;
-                for (int k = 0; k < rhvRowSize; ++k) {
-                    res.matrix[i][j] += matrix[i][k] * rhs.matrix[k][j];
-//                    cout << matrix[i][k].real() << "+" << matrix[i][k].imag() << "i * "
-//                         << rhs.matrix[k][j].real() << "+" << rhs.matrix[k][j].imag() << "i = "
-//                         << res.matrix[i][j].real() << "+" << res.matrix[i][j].imag() << endl;
-                }
-            }
-        }
+//перемножает два массива чисел алгоритмом Карацубы и возвращает вектор полученных значений
+vector<int> multNumVecsKaratsuba(const vector<int> A, const vector<int> B) {
+    //N - чётное число
+    size_t N = A.size();
 
-        return res;
+    //если кол-во чисел в A меньше заданного, выходим из рекурсии, используя обычное умножение
+    if (N <= simpleMultNumCond) {
+        vector<int> ret = multNumVecs(A, B);
+        return ret;
     }
 
-    //переводит матрицу в массив сырых чисел, предварительно инициализированный пользователем
-    //числа идут в последовательности r, im, r, im ...
-    void getRaw(int* m){
-        int k = 0, l = 1;
+    vector<int> ret(2 * N);
+    size_t Ndiv2 = N / 2;
 
-        for (int i = 0; i < rowSize; ++i){
-            for (int j = 0; j < rowSize; ++j){
-                m[k] = matrix[i][j].real();
-                m[l] = matrix[i][j].imag();
+    //число, полученное из старших разрядов x
+    vector<int> a (A.begin(), A.begin() + Ndiv2);
+    //число, полученное из младших разрядов x
+    vector<int> b (A.begin() + Ndiv2, A.end());
+    //число, полученное из старших разрядов y
+    vector<int> c (B.begin(), B.begin() + Ndiv2);
+    //число, полученное из младших разрядов y
+    vector<int> d (B.begin() + Ndiv2, B.end());
 
-                k += 2;
-                l += 2;
-            }
-        }
+    ////////вычисляем по формуле A*B=(a+b)(c+d)-a*c-b*d////////
+
+    //перемножаем значения младших разрядов
+    vector<int> bd = multNumVecsKaratsuba(b, d);
+    //перемножаем значения страших разрядов
+    vector<int> ac = multNumVecsKaratsuba(a, c);
+
+    vector<int> aPb(Ndiv2);
+    vector<int> cPd(Ndiv2);
+
+    for (size_t i = 0; i < Ndiv2; ++i) {
+        aPb[i] = a[i] + b[i];
+        cPd[i] = c[i] + d[i];
     }
-};
+
+    vector<int> aPdMcPd = multNumVecsKaratsuba(aPb, cPd);
+
+    for (size_t i = 0; i < N; ++i) {
+        aPdMcPd[i] -= ac[i] + bd[i];
+    }
+    for (size_t i = 0; i < N; ++i) {
+        ret[i] = ac[i];
+    }
+    for (size_t i = N; i < 2 * N; ++i) {
+        ret[i] = bd[i - N];
+    }
+    for (size_t i = Ndiv2; i < N + Ndiv2; ++i) {
+        ret[i] += aPdMcPd[i - Ndiv2];
+    }
+
+    return ret;
+}
+
+//вывод массива значений в виде обычного числа
+void printNumsVec(const vector<int>& vec) {
+    //итератор вектора
+    auto c = vec.crbegin();
+
+    //пропускаем нули
+    while (!*c) {
+        ++c;
+    }
+
+    //выполняется до конца значений вектора
+    while (c != vec.crend()) {
+        cout << *c++;//вывод
+    }
+    cout << endl;
+}
+
+//многопоточное умножение, перехватывает управление над подаваемой группой процессов
+vector<int> multNumVecsKaratsubaProc(const vector<int> A, const vector<int> B, int lastRank, MPI_Comm lastComm)
+{
+    //N - чётное число
+    size_t N = A.size();
+
+    //ранк текущего процесса
+    int currRank;
+    MPI_Comm_rank(lastComm, &currRank);
+
+    //если кол-во чисел в A меньше заданного, выходим из рекурсии, используя обычное умножение
+    if (N <= simpleMultNumCond) {
+        vector<int> ret = multNumVecs(A, B);
+        return ret;
+    }
+
+    vector<int> ret(N * 2);
+
+    /* проверяем число процессов текущего коммуникатора
+     * используя для этого группы
+     */
+    int currGroupSize;
+    MPI_Group currGroup;
+    MPI_Comm_group(lastComm, &currGroup);
+    MPI_Group_size(currGroup, &currGroupSize);
+    MPI_Group_free(&currGroup);
+
+    /* если поток в коммуникторе не один, то распределяем работу
+     * иначе используем собственно однопроцессорное перемножение
+     */
+    if(currGroupSize != 1)
+    {
+        int newRank;
+        int color;
+
+        size_t Ndiv2 = N / 2;
+
+        vector<int> w1, w2;
+        vector<int> w3, w4;
+
+        //каждый из коммуникаторов считает свою часть разрядов
+        if(lastRank % 2 == 1) {
+            w1 = {A.begin(), A.begin() + Ndiv2};
+            w2 = {A.begin() + Ndiv2, A.end()};
+            w3 = {B.begin(), B.begin() + Ndiv2};
+            w4 = {B.begin() + Ndiv2, B.end()};
+            color = 1;
+        }
+        else {
+            w1 = {A.begin() + Ndiv2, A.end()};
+            w2 = {A.begin(), A.begin() + Ndiv2};
+            w3 = {B.begin() + Ndiv2, B.end()};
+            w4 = {B.begin(), B.begin() + Ndiv2};
+            color = 0;
+        }
+
+        ////////вычисляем по формуле A*B=(a+b)(c+d)-a*c-b*d////////
+        ////////          a,b,c,d ~ w1,w2,w3,w4            ////////
+
+        vector<int> w1Pw2(Ndiv2);
+        vector<int> w3Pw4(Ndiv2);
+
+        //считаем
+        for (size_t i = 0; i < Ndiv2; ++i) {
+            w1Pw2[i] = w1[i] + w2[i];
+            w3Pw4[i] = w3[i] + w4[i];
+        }
+
+        //делим коммуникатор на две группы, чтобы процессы получили свою часть работы
+        MPI_Comm newComm;
+        MPI_Comm_split(lastComm, color, lastRank, &newComm);
+        MPI_Comm_rank(newComm, &newRank);
+
+        //входим в рекурисию
+        vector<int> Res1_w1Mw3 = multNumVecsKaratsubaProc(w1, w3, newRank, newComm);
+        vector<int> w1Pw2Mw3Pw4 = multNumVecsKaratsubaProc(w1Pw2, w3Pw4, lastRank, lastComm);
+
+        //главный(0) поток нового коммуникатора отправляет массив w1Mw3 верхнему в иерархии коммуникатору
+        if(lastRank != 0 && newRank == 0) {
+            int size = Res1_w1Mw3.size();
+            MPI_Send(&size, 1, MPI_INT, 0, 0, lastComm);//размер массива
+
+            MPI_Datatype intArrType;
+            MPI_Type_contiguous(size, MPI_INT, &intArrType);
+            MPI_Type_commit(&intArrType);
+
+            MPI_Send(&Res1_w1Mw3[0], 1, intArrType, 0, 0, lastComm);//сам массив
+            MPI_Type_free(&intArrType);
+        }
+
+        //главный(0) поток верхнего в иерархии коммуникатора получает сообщения от подчинённых и заканчивает вычисления
+        if(lastRank == 0)
+        {
+            MPI_Status status;
+
+            int size;
+
+            MPI_Recv(&size, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, lastComm, &status);//размер массива
+            MPI_Datatype intArrType;
+            MPI_Type_contiguous(size, MPI_INT, &intArrType);
+            MPI_Type_commit(&intArrType);
+
+            vector<int> Res2_w1Mw3(size);
+            MPI_Recv(&Res2_w1Mw3[0], 1, intArrType, MPI_ANY_SOURCE, MPI_ANY_TAG, lastComm, &status);//сам массив
+
+            //считаем...
+
+            for (size_t i = 0; i < N; ++i) {
+                w1Pw2Mw3Pw4[i] -= Res2_w1Mw3[i] + Res1_w1Mw3[i];
+            }
+
+            //старшие разряды результата
+            for (size_t i = 0; i < N; ++i) {
+                ret[i] = Res2_w1Mw3[i];
+            }
+            //младшие разряды результата
+            for (size_t i = N; i < 2 * N; ++i) {
+                ret[i] = Res1_w1Mw3[i - N];
+            }
+
+            for (size_t i = Ndiv2; i < N + Ndiv2; ++i) {
+                ret[i] += w1Pw2Mw3Pw4[i - Ndiv2];
+            }
+
+            //завершаем работу процесса
+            MPI_Comm_free(&newComm);
+            MPI_Type_free(&intArrType);
+
+            return ret;
+        }
+
+        //завершаем вычисления
+        MPI_Comm_free(&newComm);
+
+        return A;
+    }
+    //если процесс в коммуникаторе один, то это атомарная операция
+    else {
+        return multNumVecsKaratsuba(A, B);
+    }
+}
 
 int main(int argc, char* argv[])
 {
-    //--------------------Инициализация MPI--------------------//
     int procNum, procRank;
 
-    MPI_Status status;
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &procNum);
     MPI_Comm_rank(MPI_COMM_WORLD, &procRank);
 
-    //--------------------Инициализация матриц--------------------//
-    const int matrixSize = 3;
-    const int matrixAmount = 4;
-    const int matrixTypeElemNum = matrixSize * matrixSize * 2;
-
-    int matrices[matrixAmount][matrixTypeElemNum];
-
-    for(int i = 0; i < matrixAmount; i++) {
-        for(int j = 0; j < matrixTypeElemNum; j++) {
-            matrices[i][j] = (i + j) % 5;
-        }
+    //считываем числа из файла построчно
+    vector<string> readBigNums;
+    string str;
+    ifstream file("C:\\Users\\PC\\Documents\\mpi\\nums.txt");
+    while(getline(file, str)){
+        readBigNums.push_back(str);
     }
+    file.close();
 
-    //--------------------Проверка вычислений без параллельного режима--------------------//
-    if(procRank == 0){
-        ComplexMatrix matrixRes(matrixSize);
-        ComplexMatrix matrix1(matrices[0], matrixSize);
-        ComplexMatrix matrix2(matrices[1], matrixSize);
-        matrixRes = matrix2 * matrix1;
-        for(int i = 2; i < matrixAmount; ++i){
-            ComplexMatrix matrix3(matrices[i], matrixSize);
-            matrixRes = matrix3 * matrixRes;
-        }
+    //////////объявляем значения для цикла//////////
 
-        //выводим итоговую матрицу
-        int tinyCounter = 0;
-        int* rawMatrix = new int[matrixTypeElemNum];
-        matrixRes.getRaw(rawMatrix);
-        for (int i = 0; i < matrixTypeElemNum; ++i) {
-            cout << rawMatrix[i] << " ";
-            ++tinyCounter;
-            if(tinyCounter == matrixSize * 2){
-                cout << endl;
-                tinyCounter = 0;
-            }
+    int N = 0;
+
+    string firstNumStr = readBigNums[0];
+
+    string currNumStr = "";
+
+    //формируем первое число
+    vector<int> firstNumsVec = numStrToVec(firstNumStr);
+
+    vector<int> secondNumsVec;
+    vector<int> res;
+
+    int resSize;
+
+    size_t i = 1;
+
+    //цикл проходит по всем числам
+    auto start = std::chrono::steady_clock::now();
+    while(i < readBigNums.size()) {
+        currNumStr = readBigNums[i];
+        secondNumsVec = numStrToVec(currNumStr);
+
+        //приводим числа к одному размеру, кратному 2
+        N = max(firstNumsVec.size(), secondNumsVec.size());
+        fetchVec(firstNumsVec, N);
+        fetchVec(secondNumsVec, N);
+
+        //перемножаем числа в многопроцессорном режиме
+        res = multNumVecsKaratsubaProc(firstNumsVec, secondNumsVec, procRank, MPI_COMM_WORLD);
+        resSize = res.size();
+
+        //после перемножения сообщаем главному процессу результат
+        MPI_Bcast(&resSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        if(procRank != 0) {
+            res.resize(resSize);
         }
+        MPI_Bcast(&res[0], resSize, MPI_INT, 0, MPI_COMM_WORLD);
+        firstNumsVec = res;
+
+        ++i;
     }
+    auto end = std::chrono::steady_clock::now();
 
-    auto start = chrono::steady_clock::now();
+    //главный процесс правит полученный результат в соответствии с диапозоном значений maxNumBase и выводит его
+    std::chrono::duration<double> elapsedTime = end - start;
+    if(procRank == 0) {
+        std::cout << endl << "elapsed time " << elapsedTime.count()/1000 << "s\n";
 
-    //--------------------Инициализация MPI типа матрицы--------------------//
-    MPI_Datatype matrixType;
-    MPI_Type_contiguous(matrixTypeElemNum, MPI_INT, &matrixType);
-    MPI_Type_commit(&matrixType);
-
-    //--------------------Инициализация матриц для вычислений--------------------//
-    int recvMatrix[matrixTypeElemNum];
-    int m1[matrixTypeElemNum];
-    int m2[matrixTypeElemNum];
-
-    bool endFlag = true;
-
-    //--------------------Главный процесс--------------------//
-    if (procRank == 0)
-    {
-        //копируем матрицы
-        int matricesToCalc[matrixAmount][matrixTypeElemNum];
-        for (int i=0; i < matrixAmount; i++) {
-            for (int j = 0; j < matrixTypeElemNum; ++j) {
-                matricesToCalc[i][j] = matrices[i][j];
-            }
+        for (size_t i = 0; i < res.size(); ++i) {
+            res[i + 1] += res[i] / maxNumBase;
+            res[i] %= maxNumBase;
         }
 
-        //значение, показывающее количество оставшихся для перемножения матриц
-        int totalMatricesLeft = matrixAmount;
-
-        /* значение, показывающее текущее количество оставшихся для перемножения матриц
-         * с учётом процессов, выполняемых в данный момент */
-        int matricesLeft = matrixAmount;
-
-        //значение для коммуникации между процессами
-        int sendProcNum;
-
-        //очередь из свободных процессов
-        queue <int> freeProcs;
-
-        //очередь из занятых процессов
-        deque <int> busyProcs;
-
-        //изначально все процессы свободны
-        for (int i = 1; i < procNum; i++) {
-            freeProcs.push(i);
-        }
-
-        //цикл, определяющий, все ли матрицы перемножены
-        while (totalMatricesLeft != 1)
-        {
-            /* цикл, выдающий задания другим процессам, пока среди них есть свободные
-             * или не закончатся матрицы для перемножения */
-            while (matricesLeft > 1 && freeProcs.size() != 0)
-            {
-                //берём первый из свободных процессов в очереди
-                sendProcNum = freeProcs.front();
-                freeProcs.pop();
-
-                //помечаем, что процесс занят для того, чтобы запомнить последовательность умножения матриц
-                busyProcs.push_back(sendProcNum);
-
-                cout << "main processor send messages to " << sendProcNum << endl;
-
-                //отправляем информацию том, завершены ли вычисления выполняемому процессу
-                MPI_Send(&endFlag, 1, MPI_C_BOOL, sendProcNum, 0, MPI_COMM_WORLD);
-                //отправляем две последние матрицы из списка матриц для перемножения выполнямому процессу
-                MPI_Send(matricesToCalc[matricesLeft-1], 1, matrixType, sendProcNum, 0, MPI_COMM_WORLD);
-                MPI_Send(matricesToCalc[matricesLeft-2], 1, matrixType, sendProcNum, 0, MPI_COMM_WORLD);
-
-                //матриц для перемножения становится на 2 меньше
-                matricesLeft -= 2;
-                //всего остаётся на 1 матрицу меньше после умножения, A*B становятся матрицей C
-                --totalMatricesLeft;
-            }
-
-            while(busyProcs.size() != 0){
-                //берём номер последнего занятого процесса, чтобы получить перемноженные матрицы в обратном порядке
-                sendProcNum = busyProcs.back();
-                busyProcs.pop_back();
-
-                cout << "main processor waiting for messages from other processors" << endl;
-
-                //ожидаем сообщение от выполняющих процессов, содержащее вычисленную матрицу
-                MPI_Recv(recvMatrix, 1, matrixType, sendProcNum, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-                cout << "main processor took message from processor " << sendProcNum << endl;
-
-                //добавляем процесс в очередь свободных
-                freeProcs.push(sendProcNum);
-
-                //добавляем матрицу в очередь на умножение
-                for (int i = 0; i < matrixTypeElemNum; ++i) {
-                    matricesToCalc[matricesLeft][i] = recvMatrix[i];
-                }
-
-                //теперь для вычисления есть на одну матрицу больше
-                ++matricesLeft;
-            }
-        }
-
-        //после завершения цикла говорим всем процессам прекращать работу
-        endFlag = false;
-        for (int i = 1; i < procNum; ++i) {
-            MPI_Send(&endFlag, 1, MPI_C_BOOL, i, 0, MPI_COMM_WORLD);
-        }
-
-        //выводим итоговую матрицу
-        int tinyCounter = 0;
-        for (int i = 0; i < matrixTypeElemNum; ++i) {
-            cout << matricesToCalc[0][i] << " ";
-            ++tinyCounter;
-            if(tinyCounter == matrixSize * 2){
-                cout << endl;
-                tinyCounter = 0;
-            }
-        }
+        printNumsVec(res);
     }
-    //--------------------Остальные процессы--------------------//
-    else {
-        //цикл, прекращающий работу когда endFlag становится false
-        while (true) {
-            cout << "processor " << procRank << " wating message from main processor" << endl;
-
-            //получаем информацию о том, завершены ли вычисления
-            MPI_Recv(&endFlag, 1, MPI_C_BOOL, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-            //если не завершены
-            if (endFlag) {
-                //получаем две матрицы для перемножения
-                MPI_Recv(m1, 1, matrixType, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                MPI_Recv(m2, 1, matrixType, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-                //перемножаем матрицы
-                ComplexMatrix m1_c(m1, matrixSize);
-                ComplexMatrix m2_c(m2, matrixSize);
-                ComplexMatrix recvMatrix_c(matrixSize);
-                recvMatrix_c = m1_c * m2_c;
-                recvMatrix_c.getRaw(recvMatrix);
-
-                cout << "processor " << procRank << " done calculations and send result" << endl;
-
-                //отправляем готовую матрицу и номер выполняющего процесса
-                MPI_Send(recvMatrix, 1, matrixType, 0, 0, MPI_COMM_WORLD);
-            }
-            //если вычисления завершены, завершаем работу
-            else {
-                cout << "processor " << procRank << " end" << endl;
-                break;
-            }
-        }
-    }
-
-    //--------------------Завершение работы MPI--------------------//
-    MPI_Type_free(&matrixType);
     MPI_Finalize();
 
-    //выводим время работы
-    auto end = chrono::steady_clock::now();
-    chrono::duration<double> elapsed_seconds = end-start;
-    cout << "elapsed time: " << elapsed_seconds.count()/1000 << "s\n";
-
     return 0;
+
 }

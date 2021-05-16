@@ -4848,7 +4848,7 @@ PMPI_Comm_join(
 
 MPI_METHOD
 MPI_Win_create(
-    _In_ void* base,
+    _In_ void* maxNumBase,
     _In_range_(>=, 0)  MPI_Aint size,
     _In_range_(>, 0)  int disp_unit,
     _In_ MPI_Info info,
@@ -4858,7 +4858,7 @@ MPI_Win_create(
 
 MPI_METHOD
 PMPI_Win_create(
-    _In_ void* base,
+    _In_ void* maxNumBase,
     _In_range_(>=, 0)  MPI_Aint size,
     _In_range_(>, 0)  int disp_unit,
     _In_ MPI_Info info,
@@ -4963,14 +4963,14 @@ PMPI_Win_get_group(
 MPI_METHOD
 MPI_Win_attach(
     _In_ MPI_Win win,
-    _In_ void* base,
+    _In_ void* maxNumBase,
     _In_range_(>=, 0)  MPI_Aint size
     );
 
 MPI_METHOD
 PMPI_Win_attach(
     _In_ MPI_Win win,
-    _In_ void* base,
+    _In_ void* maxNumBase,
     _In_range_(>=, 0)  MPI_Aint size
     );
 
