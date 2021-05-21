@@ -24,7 +24,6 @@ vector<int> numStrToVec(string str) {
         /* формируем число в зависимости от разряда
          * при maxNumBase равном 100, число будет двузначным
          */
-        cout << str[c];
         num += (str[c] - '0') * digitMultiplier;
         digitMultiplier *= 10;
         //добавляем число в результат и повторяем для следующего
