@@ -327,6 +327,12 @@ int main(int argc, char* argv[])
 
         //перемножаем числа в многопроцессорном режиме
         res = multNumVecsKaratsubaProc(firstNumsVec, secondNumsVec, procRank, MPI_COMM_WORLD);
+
+        for (size_t i = 0; i < res.size(); ++i) {
+            res[i + 1] += res[i] / maxNumBase;
+            res[i] %= maxNumBase;
+        }
+
         resSize = res.size();
 
         //после перемножения сообщаем главному процессу результат
@@ -345,11 +351,6 @@ int main(int argc, char* argv[])
     std::chrono::duration<double> elapsedTime = end - start;
     if(procRank == 0) {
         std::cout << endl << "elapsed time " << elapsedTime.count()/1000 << "s\n";
-
-        for (size_t i = 0; i < res.size(); ++i) {
-            res[i + 1] += res[i] / maxNumBase;
-            res[i] %= maxNumBase;
-        }
 
         printNumsVec(res);
     }
