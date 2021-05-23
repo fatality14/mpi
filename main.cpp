@@ -329,7 +329,9 @@ int main(int argc, char* argv[])
         res = multNumVecsKaratsubaProc(firstNumsVec, secondNumsVec, procRank, MPI_COMM_WORLD);
 
         for (size_t i = 0; i < res.size(); ++i) {
-            res[i + 1] += res[i] / maxNumBase;
+            if(i + 1 != res.size()){
+                res[i + 1] += res[i] / maxNumBase;
+            }
             res[i] %= maxNumBase;
         }
 
@@ -354,6 +356,7 @@ int main(int argc, char* argv[])
 
         printNumsVec(res);
     }
+
     MPI_Finalize();
 
     return 0;
