@@ -1,20 +1,28 @@
-#include <headers/mpi.h>
+#include "headers/mpi.h"
 #include <iostream>
 #include <cstring>
 #include <chrono>
 #include <math.h>
 #include <queue>
 #include <fstream>
+#include <complex>
 
 using namespace std;
 
 //число кратно 10 т.к. числа в десятичной системе, определяет диапозон чисел для перемножения
 const int maxNumBase = 10;
-//условие, определяющее длину числа, начиная с которой происходит обычное умножение
-const int simpleMultNumCond = 1;
+
+//число PI
+#define _USE_MATH_DEFINES
+const double PI = M_PI;
+
+typedef complex<double> dComplex;
+typedef vector<dComplex> vComplex;
+typedef vector<int> vInt;
+typedef vector<double> vDouble;
 
 //разбивает строку и делает из неё массив чисел, кратных maxNumBase
-vector<int> numStrToVec(string str) {
+vInt numStrToVec(string str) {
     vector<int> numVec;
     unsigned int digitMultiplier = 1;
     int num = 0;
@@ -42,84 +50,6 @@ vector<int> numStrToVec(string str) {
     return numVec;
 }
 
-//делает размер массива кратным двум степени заданного числа
-void fetchVec(vector<int>& vec, size_t size) {
-    while (size & (size - 1)) {
-        ++size;
-    }
-    vec.resize(size);
-}
-
-//перемножает два массива чисел и возвращает вектор полученных значений
-vector<int> multNumVecs(const vector<int> a, const vector<int> b) {
-    size_t size = a.size();
-    vector<int> ret(size * 2);
-
-    for (size_t i = 0; i < size; ++i) {
-        for (size_t j = 0; j < size; ++j) {
-            ret[i + j] += a[i] * b[j];
-        }
-    }
-
-    return ret;
-}
-
-//перемножает два массива чисел алгоритмом Карацубы и возвращает вектор полученных значений
-vector<int> multNumVecsKaratsuba(const vector<int> A, const vector<int> B) {
-    //N - чётное число
-    size_t N = A.size();
-
-    //если кол-во чисел в A меньше заданного, выходим из рекурсии, используя обычное умножение
-    if (N <= simpleMultNumCond) {
-        vector<int> ret = multNumVecs(A, B);
-        return ret;
-    }
-
-    vector<int> ret(N * 2);
-    size_t Ndiv2 = N / 2;
-
-    //число, полученное из старших разрядов x
-    vector<int> a (A.begin(), A.begin() + Ndiv2);
-    //число, полученное из младших разрядов x
-    vector<int> b (A.begin() + Ndiv2, A.end());
-    //число, полученное из старших разрядов y
-    vector<int> c (B.begin(), B.begin() + Ndiv2);
-    //число, полученное из младших разрядов y
-    vector<int> d (B.begin() + Ndiv2, B.end());
-
-    ////////вычисляем по формуле A*B=(a+b)(c+d)-a*c-b*d////////
-
-    //перемножаем значения младших разрядов
-    vector<int> bd = multNumVecsKaratsuba(b, d);
-    //перемножаем значения страших разрядов
-    vector<int> ac = multNumVecsKaratsuba(a, c);
-
-    vector<int> aPb(Ndiv2);
-    vector<int> cPd(Ndiv2);
-
-    for (size_t i = 0; i < Ndiv2; ++i) {
-        aPb[i] = a[i] + b[i];
-        cPd[i] = c[i] + d[i];
-    }
-
-    vector<int> aPdMcPd = multNumVecsKaratsuba(aPb, cPd);
-
-    for (size_t i = 0; i < N; ++i) {
-        aPdMcPd[i] -= ac[i] + bd[i];
-    }
-    for (size_t i = 0; i < N; ++i) {
-        ret[i] = ac[i];
-    }
-    for (size_t i = N; i < 2 * N; ++i) {
-        ret[i] = bd[i - N];
-    }
-    for (size_t i = Ndiv2; i < N + Ndiv2; ++i) {
-        ret[i] += aPdMcPd[i - Ndiv2];
-    }
-
-    return ret;
-}
-
 //вывод массива значений в виде обычного числа
 void printNumsVec(const vector<int>& vec) {
     //итератор вектора
@@ -137,145 +67,201 @@ void printNumsVec(const vector<int>& vec) {
     cout << endl;
 }
 
-//многопоточное умножение, перехватывает управление над подаваемой группой процессов
-vector<int> multNumVecsKaratsubaProc(const vector<int> A, const vector<int> B, int lastRank, MPI_Comm lastComm)
-{
-    //N - чётное число
-    size_t N = A.size();
+//перемножает два массива чисел алгоритмом Шёнхаге — Штрассена и возвращает вектор полученных значений
+vComplex FourierTransform(vComplex &vec, bool invert) {
+    size_t vecSize = vec.size();
 
-    //ранк текущего процесса
-    int currRank;
-    MPI_Comm_rank(lastComm, &currRank);
-
-    //если кол-во чисел в A меньше заданного, выходим из рекурсии, используя обычное умножение
-    if (N <= simpleMultNumCond) {
-        vector<int> ret = multNumVecs(A, B);
-        return ret;
+    //выход из рекурсии
+    if (vecSize == 1) {
+        return vec;
     }
 
-    vector<int> ret(N * 2);
+    //делим вектор на две части
+    vComplex vec0(vecSize/2),  vec1(vecSize/2);
+    for (size_t i = 0, j = 0; i < vecSize; i+=2, ++j) {
+        vec0[j] = vec[i];
+        vec1[j] = vec[i+1];
+    }
 
-    /* проверяем число процессов текущего коммуникатора
-     * используя для этого группы
-     */
-    int currGroupSize;
-    MPI_Group currGroup;
-    MPI_Comm_group(lastComm, &currGroup);
-    MPI_Group_size(currGroup, &currGroupSize);
-    MPI_Group_free(&currGroup);
+    //преобразуем первую и вторую части по формуле
+    //см. https://en.wikipedia.org/wiki/Discrete_Fourier_transform
+    vec0 = FourierTransform (vec0, invert);
+    vec1 = FourierTransform (vec1, invert);
 
-    /* если поток в коммуникторе не один, то распределяем работу
+    double ang = 2 * PI/vecSize * (invert ? -1 : 1);
+    dComplex w(1), wn(cos(ang), sin(ang));
+
+    for (size_t i = 0; i < vecSize/2; ++i) {
+        vec[i] = vec0[i] + w * vec1[i];
+        vec[i+vecSize/2] = vec0[i] - w * vec1[i];
+
+        if (invert) {
+            vec[i] /= 2,  vec[i+vecSize/2] /= 2;
+        }
+
+        w *= wn;
+    }
+
+    return vec;
+}
+
+//многопоточное умножение, перехватывает управление над подаваемой группой процессов
+vComplex FourierTransformMPI(vComplex& vec, const vInt& subdims, bool invert, int lastRank, MPI_Comm lastComm) {
+    size_t vecSize = vec.size();
+
+    //выходим из рекурсии
+    if (vecSize == 1) {
+        return vec;
+    }
+
+    //число процессв в текущем коммуникаторе
+    int procAmount;
+    MPI_Comm_size(lastComm, &procAmount);
+
+    /* если процесс в коммуникторе не один, то распределяем работу
      * иначе используем собственно однопроцессорное перемножение
      */
-    if(currGroupSize != 1)
-    {
-        int newRank;
-        int color;
+    if(procAmount > 1) {
+        //преобразуем первую и вторую части по формуле
+        //см. https://en.wikipedia.org/wiki/Discrete_Fourier_transform
 
-        size_t Ndiv2 = N / 2;
+        //первая часть
+        vComplex vec0 (vecSize/2);
 
-        vector<int> w1, w2;
-        vector<int> w3, w4;
-
-        //каждый из коммуникаторов считает свою часть разрядов
-        if(lastRank % 2 == 1) {
-            w1 = {A.begin(), A.begin() + Ndiv2};
-            w2 = {A.begin() + Ndiv2, A.end()};
-            w3 = {B.begin(), B.begin() + Ndiv2};
-            w4 = {B.begin() + Ndiv2, B.end()};
-            color = 1;
+        if(lastRank < procAmount / 2) {
+            for (size_t i = 0, j = 0; i < vecSize; i+=2, ++j) {
+                vec0[j] = vec[i];
+            }
         }
         else {
-            w1 = {A.begin() + Ndiv2, A.end()};
-            w2 = {A.begin(), A.begin() + Ndiv2};
-            w3 = {B.begin() + Ndiv2, B.end()};
-            w4 = {B.begin(), B.begin() + Ndiv2};
-            color = 0;
+            for (size_t i = 1, j = 0; i <= vecSize; i+=2, ++j) {
+                vec0[j] = vec[i];
+            }
         }
 
-        ////////вычисляем по формуле A*B=(a+b)(c+d)-a*c-b*d////////
-        ////////          a,b,c,d ~ w1,w2,w3,w4            ////////
-
-        vector<int> w1Pw2(Ndiv2);
-        vector<int> w3Pw4(Ndiv2);
-
-        //считаем
-        for (size_t i = 0; i < Ndiv2; ++i) {
-            w1Pw2[i] = w1[i] + w2[i];
-            w3Pw4[i] = w3[i] + w4[i];
-        }
-
-        //делим коммуникатор на две группы, чтобы процессы получили свою часть работы
+        //делим решётку пополам
         MPI_Comm newComm;
-        MPI_Comm_split(lastComm, color, lastRank, &newComm);
+        MPI_Cart_sub(lastComm, &subdims[0], &newComm);
+
+        //ранк процесса в новом коммуникаторе
+        int newRank;
         MPI_Comm_rank(newComm, &newRank);
 
-        //входим в рекурисию
-        vector<int> Res1_w1Mw3 = multNumVecsKaratsubaProc(w1, w3, newRank, newComm);
-        vector<int> w1Pw2Mw3Pw4 = multNumVecsKaratsubaProc(w1Pw2, w3Pw4, lastRank, lastComm);
+        //входим в рекурсию, преобразуем свою часть вектора
+        vec0 = FourierTransformMPI(vec0, subdims, invert, newRank, newComm);
 
-        //главный(0) поток нового коммуникатора отправляет массив w1Mw3 верхнему в иерархии коммуникатору
-        if(lastRank != 0 && newRank == 0) {
-            int size = Res1_w1Mw3.size();
-            MPI_Send(&size, 1, MPI_INT, 0, 0, lastComm);//размер массива
+        //главный(0) поток нового коммуникатора отправляет вектор vec0 верхнему в иерархии коммуникатору
+        if (lastRank != 0 && newRank == 0) {
+            int size = vec0.size();
 
-            MPI_Datatype intArrType;
-            MPI_Type_contiguous(size, MPI_INT, &intArrType);
-            MPI_Type_commit(&intArrType);
+            vDouble sendVec(size * 2);
+            for(int i = 0; i < size; i++) {
+                sendVec[i] = vec0[i].real();
+                sendVec[i+size] = vec0[i].imag();
+            }
 
-            MPI_Send(&Res1_w1Mw3[0], 1, intArrType, 0, 0, lastComm);//сам массив
-            MPI_Type_free(&intArrType);
+            MPI_Send(&size, 1, MPI_INT, 0, 0, lastComm);//размер вектора
+
+            MPI_Datatype longArrType;
+            MPI_Type_contiguous(size * 2, MPI_DOUBLE, &longArrType);
+            MPI_Type_commit(&longArrType);
+
+            MPI_Send(&sendVec[0], 1, longArrType, 0, 0, lastComm);//сам вектор
+            MPI_Type_free(&longArrType);
         }
 
         //главный(0) поток верхнего в иерархии коммуникатора получает сообщения от подчинённых и заканчивает вычисления
-        if(lastRank == 0)
-        {
+        if(lastRank == 0) {
             MPI_Status status;
 
             int size;
 
             MPI_Recv(&size, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, lastComm, &status);//размер массива
-            MPI_Datatype intArrType;
-            MPI_Type_contiguous(size, MPI_INT, &intArrType);
-            MPI_Type_commit(&intArrType);
 
-            vector<int> Res2_w1Mw3(size);
-            MPI_Recv(&Res2_w1Mw3[0], 1, intArrType, MPI_ANY_SOURCE, MPI_ANY_TAG, lastComm, &status);//сам массив
+            MPI_Datatype longArrType;
+            MPI_Type_contiguous(size * 2, MPI_DOUBLE, &longArrType);
+            MPI_Type_commit(&longArrType);
+
+            vDouble recvVec(size * 2);
+            MPI_Recv(&recvVec[0], 1, longArrType, MPI_ANY_SOURCE, MPI_ANY_TAG, lastComm, &status);//сам массив
+
+            MPI_Type_free(&longArrType);
+
+            //заполняем вектор комплексных чисел, полученными значениями
+            vComplex vec1(size);
+            for(int i = 0; i < size; i++) {
+                dComplex v(recvVec[i],recvVec[i+size]);
+                vec1[i]=v;
+            }
 
             //считаем...
 
-            for (size_t i = 0; i < N; ++i) {
-                w1Pw2Mw3Pw4[i] -= Res2_w1Mw3[i] + Res1_w1Mw3[i];
-            }
+            double ang = 2 * PI/vecSize * (invert ? -1 : 1);
 
-            //старшие разряды результата
-            for (size_t i = 0; i < N; ++i) {
-                ret[i] = Res2_w1Mw3[i];
-            }
-            //младшие разряды результата
-            for (size_t i = N; i < 2 * N; ++i) {
-                ret[i] = Res1_w1Mw3[i - N];
-            }
+            dComplex w(1), wn(cos(ang), sin(ang));
 
-            for (size_t i = Ndiv2; i < N + Ndiv2; ++i) {
-                ret[i] += w1Pw2Mw3Pw4[i - Ndiv2];
+            for (size_t i = 0; i < vecSize/2; ++i) {
+                vec[i] = vec0[i] + w * vec1[i];
+                vec[i+vecSize/2] = vec0[i] - w * vec1[i];
+
+                if (invert) {
+                    vec[i] /= 2,  vec[i+vecSize/2] /= 2;
+                }
+
+                w *= wn;
             }
-
-            //завершаем работу процесса
-            MPI_Comm_free(&newComm);
-            MPI_Type_free(&intArrType);
-
-            return ret;
         }
 
         //завершаем вычисления
         MPI_Comm_free(&newComm);
-
-        return A;
+        return vec;
     }
     //если процесс в коммуникаторе один, то это атомарная операция
     else {
-        return multNumVecsKaratsuba(A, B);
+        return FourierTransform (vec,invert);
+    }
+}
+
+void multNumVecsSchonhageStrassenMPI (const vInt & A, const vInt & B, vector<int> & res, const vector<int> &subdims, int lastRank, MPI_Comm lastComm) {
+    //переводим числа в комплексные
+    vComplex a (A.begin(), A.end());
+    vComplex b (B.begin(), B.end());
+
+    //ищем размер результата как 2^n, чтобы точно хватило на все значения
+    size_t resSize = 1;
+    while (resSize < max (A.size(), B.size())) {
+        resSize *= 2;
+    }
+    resSize *= 2;
+
+    a.resize(resSize);
+    b.resize(resSize);
+
+    //вычисляем в многопроцессорном режиме многочлены 'a' и 'b' и заносим его в эти же переменные - прямое преобразование Фурье
+    FourierTransformMPI(a, subdims, false, lastRank, lastComm);
+    FourierTransformMPI(b, subdims, false, lastRank, lastComm);
+
+    //магия перемножения многочленов
+    for (size_t i=0; i<resSize; ++i) {
+        a[i] *= b[i];
+    }
+
+    //находим получившееся число - обратное преобразование Фурье
+    FourierTransform(a, true);
+
+    res.resize(resSize);
+
+    //переводим число из комплексного в обычное
+    for (size_t i = 0; i < resSize; ++i) {
+        res[i] = int(a[i].real() + 0.5);
+    }
+
+    //определяем выход за пределы массива, если такие были
+    int rest = 0;
+    for (size_t i = 0; i < resSize; ++i) {
+        res[i] += rest;
+        rest = res[i] / 10;
+        res[i] %= 10;
     }
 }
 
@@ -290,74 +276,75 @@ int main(int argc, char* argv[])
     //считываем числа из файла построчно
     vector<string> readBigNums;
     string str;
-    ifstream file("C:\\Users\\PC\\Documents\\mpi\\nums.txt");
+    ifstream file("C:\\Users\\1234\\Documents\\prjcts\\mpii\\nums.txt");
     while(getline(file, str)){
         readBigNums.push_back(str);
     }
     file.close();
 
-    //////////объявляем значения для цикла//////////
+    if((double)((int)log2(procNum)) == log2(procNum)) {
+        //////////объявляем значения для цикла//////////
 
-    int N = 0;
+        int resolution = (int)log2(procNum);
 
-    string firstNumStr = readBigNums[0];
+        string firstNumStr = readBigNums[0];
+        string currNumStr = "";
 
-    string currNumStr = "";
+        //формируем первое число
+        vector<int> firstNumsVec = numStrToVec(firstNumStr);
+        vector<int> secondNumsVec;
+        vector<int> res;
 
-    //формируем первое число
-    vector<int> firstNumsVec = numStrToVec(firstNumStr);
+        int resSize;
 
-    vector<int> secondNumsVec;
-    vector<int> res;
+        size_t i = 1;
 
-    int resSize;
+        //////////объявляем коммуникатор решётки 2*2*...*2*1//////////
 
-    size_t i = 1;
+        MPI_Comm gridComm;
 
-    //цикл проходит по всем числам
-    auto start = std::chrono::steady_clock::now();
-    while(i < readBigNums.size()) {
-        currNumStr = readBigNums[i];
-        secondNumsVec = numStrToVec(currNumStr);
+        int reorder = 1;
+        vInt dims(resolution + 1, 2);
+        dims[resolution]=1;
+        vInt periods(resolution + 1, 1);
+        vInt subdims(resolution+1,1);
+        subdims[0]=0;
 
-        //приводим числа к одному размеру, кратному 2
-        N = max(firstNumsVec.size(), secondNumsVec.size());
-        fetchVec(firstNumsVec, N);
-        fetchVec(secondNumsVec, N);
+        MPI_Cart_create(MPI_COMM_WORLD, resolution + 1, &dims[0], &periods[0], reorder, &gridComm);
 
-        //перемножаем числа в многопроцессорном режиме
-        res = multNumVecsKaratsubaProc(firstNumsVec, secondNumsVec, procRank, MPI_COMM_WORLD);
+        //цикл проходит по всем числам
+        auto start = std::chrono::steady_clock::now();
+        while (i < readBigNums.size()) {
+            currNumStr =readBigNums[i];
+            secondNumsVec = numStrToVec(currNumStr);
 
-        for (size_t i = 0; i < res.size(); ++i) {
-            if(i + 1 != res.size()){
-                res[i + 1] += res[i] / maxNumBase;
+            //перемножаем числа
+            multNumVecsSchonhageStrassenMPI(firstNumsVec, secondNumsVec, res, subdims, procRank, gridComm);
+
+            resSize = res.size();
+
+            //после перемножения сообщаем главному процессу результат
+            MPI_Bcast(&resSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            if(procRank != 0) {
+                res.resize(resSize);
             }
-            res[i] %= maxNumBase;
+            MPI_Bcast(&res[0], resSize, MPI_INT, 0, MPI_COMM_WORLD);
+            firstNumsVec = res;
+
+            ++i;
+        }
+        auto end = std::chrono::steady_clock::now();
+
+        //главный процесс правит полученный результат в соответствии с диапозоном значений maxNumBase и выводит его
+        std::chrono::duration<double> elapsedTime = end - start;
+        if(procRank == 0) {
+            std::cout << "elapsed time " << elapsedTime.count()/1000 << "s\n";
+
+            printNumsVec(res);
         }
 
-        resSize = res.size();
-
-        //после перемножения сообщаем главному процессу результат
-        MPI_Bcast(&resSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        if(procRank != 0) {
-            res.resize(resSize);
-        }
-        MPI_Bcast(&res[0], resSize, MPI_INT, 0, MPI_COMM_WORLD);
-        firstNumsVec = res;
-
-        ++i;
+        MPI_Finalize();
     }
-    auto end = std::chrono::steady_clock::now();
-
-    //главный процесс правит полученный результат в соответствии с диапозоном значений maxNumBase и выводит его
-    std::chrono::duration<double> elapsedTime = end - start;
-    if(procRank == 0) {
-        std::cout << endl << "elapsed time " << elapsedTime.count()/1000 << "s\n";
-
-        printNumsVec(res);
-    }
-
-    MPI_Finalize();
 
     return 0;
 
