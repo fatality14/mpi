@@ -1,6 +1,8 @@
+#define _USE_MATH_DEFINES
+
 #include "headers/mpi.h"
 #include <iostream>
-#include <cstring>
+#include <string>
 #include <chrono>
 #include <math.h>
 #include <queue>
@@ -13,7 +15,6 @@ using namespace std;
 const int maxNumBase = 10;
 
 //число PI
-#define _USE_MATH_DEFINES
 const double PI = M_PI;
 
 typedef complex<double> dComplex;
@@ -276,7 +277,10 @@ int main(int argc, char* argv[])
     //считываем числа из файла построчно
     vector<string> readBigNums;
     string str;
+
+    //НУЖНО СОЗДАТЬ ФАЙЛ И ДОБАВИТЬ В НЕГО ЧИСЛА, ОДНА СТРОКА - ОДНО ЧИСЛО, ПУСТЫЕ СТРОКИ НЕЛЬЗЯ!
     ifstream file("C:\\Users\\1234\\Documents\\prjcts\\mpii\\nums.txt");
+
     while(getline(file, str)){
         readBigNums.push_back(str);
     }
